@@ -1,6 +1,8 @@
 package main
 
-import "rss-parser/cmd/internal/app"
+import (
+	"rss-parser/internal/app"
+)
 
 func main() {
 	app.Run()

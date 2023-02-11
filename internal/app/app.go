@@ -12,7 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
-	"rss-parser/cmd/internal/config"
+	"rss-parser/internal/config"
 	"strings"
 	"syscall"
 	"time"
