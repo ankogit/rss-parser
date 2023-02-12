@@ -239,7 +239,8 @@ func readFile(filepath string) string {
 	if err != nil {
 		log.Fatal(err)
 	}
-	return string(content)
+
+	return strings.TrimSuffix(string(content), "\n")
 }
 
 func writeFile(filepath string, value string) error {
