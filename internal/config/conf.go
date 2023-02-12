@@ -14,6 +14,7 @@ type Config struct {
 	ParseLinkUpwork string `envconfig:"PARSE_LINK_UPWORK"`
 	FiltersStr      string `envconfig:"FILTERS_STR"`
 	AmoCrmEndPoint  string `envconfig:"AMOCRM_ENDPOINT"`
+	ParsePerMinute  string `envconfig:"PARSE_PER_MINUTE"`
 }
 
 // Init populates Config struct with values from config file

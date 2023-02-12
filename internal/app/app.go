@@ -82,7 +82,7 @@ func parse(cfg config.Config, parseLink string) {
 
 	newToken, err := refreshToken(cfg)
 	if err != nil {
-		log.Panicln(err)
+		log.Fatal(err)
 	}
 	access_token = newToken.AccessToken
 	refresh_token = newToken.RefreshToken
@@ -141,7 +141,6 @@ func createLead(item Item, cfg config.Config) (result CreateLeadsResponse, err e
 {"field_id": %v,"values": [{"value": "%v"}]}
 ] }]`, item.Title, tagsStr, link_field_id, item.Link, place_field_id, upworkPlace))
 	responseBody := bytes.NewBuffer(postBody)
-	//log.Println(string(postBody))
 	req, _ := http.NewRequest("POST", cfg.AmoCrmEndPoint+"/api/v4/leads", responseBody)
 	req.Header.Set("Authorization", "Bearer "+access_token)
 	response, err := httpClient.Do(req)
@@ -162,8 +161,6 @@ func createLead(item Item, cfg config.Config) (result CreateLeadsResponse, err e
 // Отправить примечание к сделке
 func createNote(leadId int, item Item, cfg config.Config) {
 	httpClient := &http.Client{}
-	println("createNote")
-	log.Println("qqqqq")
 	postBody := []byte(fmt.Sprintf(`[{"note_type": "common","params": {"text":  "%v"}}]`, html2text.HTML2Text(item.Description)))
 	responseBody := bytes.NewBuffer(postBody)
 	req, _ := http.NewRequest("POST", fmt.Sprintf(cfg.AmoCrmEndPoint+"/api/v4/leads/%v/notes", leadId), responseBody)
@@ -190,7 +187,6 @@ func refreshToken(cfg config.Config) (result RefreshTokenResponse, err error) {
 		fmt.Println(err)
 		return result, err
 	}
-	log.Println(string(postBody))
 	req, _ := http.NewRequest("POST", cfg.AmoCrmEndPoint+"/oauth2/access_token", bytes.NewBuffer(postBody))
 	req.Header.Set("Content-Type", "application/json")
 
