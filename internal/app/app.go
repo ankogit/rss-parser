@@ -100,14 +100,13 @@ func parse(cfg config.Config, parseLink string) {
 				newItem.Item = item
 				newItem.Filters = make(map[string]bool)
 
-				matches := searchTags.FindAllString(strings.ToLower(item.Description+"java java"), -1)
+				matches := searchTags.FindAllString(strings.ToLower(item.Description), -1)
 
 				for _, v := range matches {
 					if len(newItem.Filters) < 5 {
 						newItem.Filters[v] = true
 					}
 				}
-				newItem.Filters["Upwork"] = true
 				results = append(results, *newItem)
 			}
 		}
@@ -116,18 +115,18 @@ func parse(cfg config.Config, parseLink string) {
 	lastParsedTime = *feed.Items[0].PublishedParsed
 
 	for _, item := range results {
-		createdLeads, err := createLead(item)
+		createdLeads, err := createLead(item, cfg)
 		if err != nil {
 			log.Fatal(err)
 		}
 		for _, l := range createdLeads.Embedded.Leads {
-			createNote(l.Id, item)
+			createNote(l.Id, item, cfg)
 
 		}
 	}
 }
 
-func createLead(item Item) (result CreateLeadsResponse, err error) {
+func createLead(item Item, cfg config.Config) (result CreateLeadsResponse, err error) {
 	httpClient := &http.Client{}
 	tagsStr := KeysString(item.Filters)
 	postBody := []byte(fmt.Sprintf(`[{
@@ -142,8 +141,8 @@ func createLead(item Item) (result CreateLeadsResponse, err error) {
 {"field_id": %v,"values": [{"value": "%v"}]}
 ] }]`, item.Title, tagsStr, link_field_id, item.Link, place_field_id, upworkPlace))
 	responseBody := bytes.NewBuffer(postBody)
-	log.Println(string(postBody))
-	req, _ := http.NewRequest("POST", "https://bespalowkodefabriquecom.amocrm.ru/api/v4/leads", responseBody)
+	//log.Println(string(postBody))
+	req, _ := http.NewRequest("POST", cfg.AmoCrmEndPoint+"/api/v4/leads", responseBody)
 	req.Header.Set("Authorization", "Bearer "+access_token)
 	response, err := httpClient.Do(req)
 	if err != nil {
@@ -152,6 +151,7 @@ func createLead(item Item) (result CreateLeadsResponse, err error) {
 	defer response.Body.Close()
 	//body, _ := ioutil.ReadAll(response.Body)
 	//fmt.Println("response Body:", string(body))
+
 	err = json.NewDecoder(response.Body).Decode(&result)
 	if err != nil {
 		return result, err
@@ -160,12 +160,13 @@ func createLead(item Item) (result CreateLeadsResponse, err error) {
 }
 
 // Отправить примечание к сделке
-func createNote(leadId int, item Item) {
+func createNote(leadId int, item Item, cfg config.Config) {
 	httpClient := &http.Client{}
 	println("createNote")
+	log.Println("qqqqq")
 	postBody := []byte(fmt.Sprintf(`[{"note_type": "common","params": {"text":  "%v"}}]`, html2text.HTML2Text(item.Description)))
 	responseBody := bytes.NewBuffer(postBody)
-	req, _ := http.NewRequest("POST", fmt.Sprintf("https://bespalowkodefabriquecom.amocrm.ru/api/v4/leads/%v/notes", leadId), responseBody)
+	req, _ := http.NewRequest("POST", fmt.Sprintf(cfg.AmoCrmEndPoint+"/api/v4/leads/%v/notes", leadId), responseBody)
 	req.Header.Set("Authorization", "Bearer "+access_token)
 	response, err := httpClient.Do(req)
 	if err != nil {
@@ -176,13 +177,13 @@ func createNote(leadId int, item Item) {
 	fmt.Println("response Body:", string(body))
 }
 
-func refreshToken(config2 config.Config) (result RefreshTokenResponse, err error) {
+func refreshToken(cfg config.Config) (result RefreshTokenResponse, err error) {
 	httpClient := &http.Client{}
 	var refreshJson RefreshJson
 	refreshJson.RefreshToken = refresh_token
-	refreshJson.ClientSecret = config2.ClientSecret
-	refreshJson.ClientId = config2.ClientId
-	refreshJson.RedirectUri = config2.RedirectUri
+	refreshJson.ClientSecret = cfg.ClientSecret
+	refreshJson.ClientId = cfg.ClientId
+	refreshJson.RedirectUri = cfg.RedirectUri
 	refreshJson.GrantType = grant_type_refresh
 	postBody, err := json.Marshal(refreshJson)
 	if err != nil {
@@ -190,7 +191,7 @@ func refreshToken(config2 config.Config) (result RefreshTokenResponse, err error
 		return result, err
 	}
 	log.Println(string(postBody))
-	req, _ := http.NewRequest("POST", "https://bespalowkodefabriquecom.amocrm.ru/oauth2/access_token", bytes.NewBuffer(postBody))
+	req, _ := http.NewRequest("POST", cfg.AmoCrmEndPoint+"/oauth2/access_token", bytes.NewBuffer(postBody))
 	req.Header.Set("Content-Type", "application/json")
 
 	response, err := httpClient.Do(req)

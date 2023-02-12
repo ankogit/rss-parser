@@ -1,0 +1,13 @@
+version: "3.9"
+services:
+  rss_parser_app:
+    build: .
+    image: rss-parser-app
+    container_name: rss-parser-app
+    ports:
+      - "8885:8000"
+    volumes:
+      - /var/data:/var/data
+    env_file:
+      - .env
+

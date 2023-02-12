@@ -13,6 +13,7 @@ type Config struct {
 	RedirectUri     string `envconfig:"REDIRECT_URI"`
 	ParseLinkUpwork string `envconfig:"PARSE_LINK_UPWORK"`
 	FiltersStr      string `envconfig:"FILTERS_STR"`
+	AmoCrmEndPoint  string `envconfig:"AMOCRM_ENDPOINT"`
 }
 
 // Init populates Config struct with values from config file
