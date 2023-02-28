@@ -8,13 +8,14 @@ import (
 )
 
 type Config struct {
-	ClientId        string `envconfig:"CLIENT_ID"`
-	ClientSecret    string `envconfig:"CLIENT_SECRET"`
-	RedirectUri     string `envconfig:"REDIRECT_URI"`
-	ParseLinkUpwork string `envconfig:"PARSE_LINK_UPWORK"`
-	FiltersStr      string `envconfig:"FILTERS_STR"`
-	AmoCrmEndPoint  string `envconfig:"AMOCRM_ENDPOINT"`
-	ParsePerMinute  string `envconfig:"PARSE_PER_MINUTE"`
+	ClientId           string `envconfig:"CLIENT_ID"`
+	ClientSecret       string `envconfig:"CLIENT_SECRET"`
+	RedirectUri        string `envconfig:"REDIRECT_URI"`
+	ParseLinkUpwork    string `envconfig:"PARSE_LINK_UPWORK"`
+	FiltersStr         string `envconfig:"FILTERS_STR"`
+	ExcludedFiltersStr string `envconfig:"EXCLUDED_FILTERS_STR"`
+	AmoCrmEndPoint     string `envconfig:"AMOCRM_ENDPOINT"`
+	ParsePerMinute     string `envconfig:"PARSE_PER_MINUTE"`
 }
 
 // Init populates Config struct with values from config file

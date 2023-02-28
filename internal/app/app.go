@@ -24,6 +24,7 @@ const place_field_id = "384301"
 const upworkPlace = "Upwork"
 const access_token_file = "access_token"
 const refresh_token_file = "refresh_token"
+const close_status = 143
 
 var access_token = ""
 var refresh_token = ""
@@ -32,9 +33,15 @@ var lastParsedTime time.Time
 type CreateLeadsResponse struct {
 	Embedded struct {
 		Leads []struct {
-			Id int `json:"id"`
+			Id        int   `json:"id"`
+			CreatedAt int64 `json:"created_at"`
 		} `json:"leads"`
 	} `json:"_embedded"`
+}
+
+type UpdateLeadsRequest struct {
+	Id       int `json:"id"`
+	StatusId int `json:"status_id"`
 }
 type RefreshTokenResponse struct {
 	TokenType    string `json:"token_type"`
@@ -63,6 +70,13 @@ func Run() {
 		}
 	}()
 
+	go func() {
+		for {
+			removeOldLeads(*cfg)
+			time.Sleep(time.Hour * 6)
+		}
+	}()
+
 	//
 	// Graceful Shutdown
 	//
@@ -76,7 +90,7 @@ func Run() {
 
 }
 
-func parse(cfg config.Config, parseLink string) {
+func auth(cfg config.Config) {
 	access_token = readFile(access_token_file)
 	refresh_token = readFile(refresh_token_file)
 
@@ -86,8 +100,13 @@ func parse(cfg config.Config, parseLink string) {
 	}
 	access_token = newToken.AccessToken
 	refresh_token = newToken.RefreshToken
+}
+
+func parse(cfg config.Config, parseLink string) {
+	auth(cfg)
 
 	var searchTags = regexp.MustCompile(cfg.FiltersStr)
+	var excludedSearchTags = regexp.MustCompile(cfg.ExcludedFiltersStr)
 
 	fp := gofeed.NewParser()
 	feed, _ := fp.ParseURL(parseLink)
@@ -95,6 +114,9 @@ func parse(cfg config.Config, parseLink string) {
 
 	for _, item := range feed.Items {
 		if lastParsedTime.Before(*item.PublishedParsed) {
+			if excludedSearchTags.MatchString(strings.ToLower(item.Description)) {
+				continue
+			}
 			if searchTags.MatchString(strings.ToLower(item.Description)) {
 				newItem := new(Item)
 				newItem.Item = item
@@ -150,7 +172,7 @@ func createLead(item Item, cfg config.Config) (result CreateLeadsResponse, err e
 	defer response.Body.Close()
 	//body, _ := ioutil.ReadAll(response.Body)
 	//fmt.Println("response Body:", string(body))
-
+	//log.Println(access_token)
 	err = json.NewDecoder(response.Body).Decode(&result)
 	if err != nil {
 		return result, err
@@ -172,6 +194,52 @@ func createNote(leadId int, item Item, cfg config.Config) {
 	defer response.Body.Close()
 	body, _ := ioutil.ReadAll(response.Body)
 	fmt.Println("response Body:", string(body))
+}
+
+func removeOldLeads(cfg config.Config) error {
+	auth(cfg)
+	httpClient := &http.Client{}
+	req, _ := http.NewRequest("GET", cfg.AmoCrmEndPoint+"/api/v4/leads?page=1&limit=100&filter[statuses][0][status_id]=54816778&filter[statuses][0][pipeline_id]=6406018", nil)
+	req.Header.Set("Authorization", "Bearer "+access_token)
+	response, err := httpClient.Do(req)
+	if err != nil {
+		log.Fatalf("An Error Occured %v", err)
+	}
+	defer response.Body.Close()
+	//body, _ := ioutil.ReadAll(response.Body)
+	//log.Println("response Body:", string(body))
+	//log.Println(access_token)
+
+	var result CreateLeadsResponse
+	err = json.NewDecoder(response.Body).Decode(&result)
+	if err != nil {
+		return err
+	}
+
+	var request []UpdateLeadsRequest
+
+	for _, lead := range result.Embedded.Leads {
+		// Calling Unix method
+		if lead.CreatedAt <= time.Now().AddDate(0, 0, -2).Unix() {
+			request = append(request, UpdateLeadsRequest{
+				Id:       lead.Id,
+				StatusId: close_status,
+			})
+		}
+	}
+
+	postBody, err := json.Marshal(request)
+	responseBody := bytes.NewBuffer(postBody)
+	req, _ = http.NewRequest("PATCH", cfg.AmoCrmEndPoint+"/api/v4/leads", responseBody)
+	req.Header.Set("Authorization", "Bearer "+access_token)
+	response, _ = httpClient.Do(req)
+	//if err != nil {
+	//	//log.Fatalf("An Error Occured %v", err)
+	//}
+	defer response.Body.Close()
+	//body, _ := ioutil.ReadAll(response.Body)
+	//fmt.Println("response Body:", string(body))
+	return nil
 }
 
 func refreshToken(cfg config.Config) (result RefreshTokenResponse, err error) {
