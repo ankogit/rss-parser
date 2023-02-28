@@ -72,7 +72,7 @@ func Run() {
 
 	go func() {
 		for {
-			//removeOldLeads(*cfg)
+			removeOldLeads(*cfg)
 			time.Sleep(time.Hour * 6)
 		}
 	}()
