@@ -201,6 +201,7 @@ func createNote(leadId int, item Item, cfg config.Config) {
 }
 
 func removeOldLeads(cfg config.Config) error {
+	log.Println("Start removing")
 	auth(cfg)
 	httpClient := &http.Client{}
 	req, _ := http.NewRequest("GET", cfg.AmoCrmEndPoint+"/api/v4/leads?page=1&limit=100&filter[statuses][0][status_id]=54816778&filter[statuses][0][pipeline_id]=6406018", nil)
@@ -243,6 +244,8 @@ func removeOldLeads(cfg config.Config) error {
 	defer response.Body.Close()
 	//body, _ := ioutil.ReadAll(response.Body)
 	//fmt.Println("response Body:", string(body))
+	log.Println("End removing")
+
 	return nil
 }
 
