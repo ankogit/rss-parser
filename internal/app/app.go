@@ -72,7 +72,7 @@ func Run() {
 
 	go func() {
 		for {
-			removeOldLeads(*cfg)
+			//removeOldLeads(*cfg)
 			time.Sleep(time.Hour * 6)
 		}
 	}()
@@ -130,6 +130,7 @@ func parse(cfg config.Config, parseLink string) {
 					}
 				}
 				results = append(results, *newItem)
+				log.Println("Find one")
 			}
 		}
 	}
@@ -138,6 +139,8 @@ func parse(cfg config.Config, parseLink string) {
 
 	for _, item := range results {
 		createdLeads, err := createLead(item, cfg)
+		log.Println("Lead was created")
+
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -177,6 +180,7 @@ func createLead(item Item, cfg config.Config) (result CreateLeadsResponse, err e
 	if err != nil {
 		return result, err
 	}
+	log.Println(result)
 	return result, nil
 }
 
