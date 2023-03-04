@@ -2,8 +2,10 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/jomei/notionapi"
 	"github.com/k3a/html2text"
 	"github.com/mmcdole/gofeed"
 	"io/ioutil"
@@ -25,6 +27,9 @@ const upworkPlace = "Upwork"
 const access_token_file = "access_token"
 const refresh_token_file = "refresh_token"
 const close_status = 143
+const dbId = "ba14a6981f5f4efeb3e1cf274a38b1e1"
+const upwork = "Upwork"
+const newStatus = "Новый"
 
 var access_token = ""
 var refresh_token = ""
@@ -105,6 +110,8 @@ func auth(cfg config.Config) {
 func parse(cfg config.Config, parseLink string) {
 	auth(cfg)
 
+	notionClient := notionapi.NewClient(notionapi.Token(cfg.NotionSecret))
+
 	var searchTags = regexp.MustCompile(cfg.FiltersStr)
 	var excludedSearchTags = regexp.MustCompile(cfg.ExcludedFiltersStr)
 
@@ -138,15 +145,15 @@ func parse(cfg config.Config, parseLink string) {
 	lastParsedTime = *feed.Items[0].PublishedParsed
 
 	for _, item := range results {
+		createNotionPage(notionClient, item)
 		createdLeads, err := createLead(item, cfg)
 		log.Println("Lead was created")
 
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
 		}
 		for _, l := range createdLeads.Embedded.Leads {
 			createNote(l.Id, item, cfg)
-
 		}
 	}
 }
@@ -320,4 +327,81 @@ func writeFile(filepath string, value string) error {
 		return err
 	}
 	return nil
+}
+
+func createNotionPage(client *notionapi.Client, item Item) {
+
+	var techOptions []notionapi.Option
+	for filter, _ := range item.Filters {
+		techOptions = append(techOptions, notionapi.Option{
+			Name: filter,
+		})
+	}
+
+	page, err := client.Page.Create(context.Background(), &notionapi.PageCreateRequest{
+		Parent: notionapi.Parent{
+			Type:       notionapi.ParentTypeDatabaseID,
+			DatabaseID: dbId,
+		},
+		Properties: notionapi.Properties{
+			"ЛПР": notionapi.TitleProperty{
+				Title: []notionapi.RichText{
+					{Text: &notionapi.Text{Content: item.Title}},
+				},
+			},
+			"Ресурс": notionapi.SelectProperty{
+				Select: notionapi.Option{
+					Name: upwork,
+				},
+			},
+			"Статус": notionapi.SelectProperty{
+				Select: notionapi.Option{
+					Name: newStatus,
+				},
+			},
+			"Технологии": notionapi.MultiSelectProperty{
+				MultiSelect: techOptions,
+			},
+			"URL": notionapi.URLProperty{
+				URL: item.Link,
+			},
+		},
+		Children: []notionapi.Block{
+			notionapi.Heading1Block{
+				BasicBlock: notionapi.BasicBlock{
+					Object: notionapi.ObjectTypeBlock,
+					Type:   notionapi.BlockTypeHeading1,
+				},
+				Heading1: notionapi.Heading{
+					RichText: []notionapi.RichText{
+						{
+							Type: notionapi.ObjectTypeText,
+							Text: &notionapi.Text{Content: "Background info"},
+						},
+					},
+				},
+			},
+			notionapi.ParagraphBlock{
+				BasicBlock: notionapi.BasicBlock{
+					Object: notionapi.ObjectTypeBlock,
+					Type:   notionapi.BlockTypeParagraph,
+				},
+				Paragraph: notionapi.Paragraph{
+					RichText: []notionapi.RichText{
+						{
+							Text: &notionapi.Text{
+								Content: html2text.HTML2Text(item.Description),
+							},
+						},
+					},
+					Children: nil,
+				},
+			},
+		},
+	})
+
+	if err != nil {
+		log.Println(err)
+	}
+	log.Println(page)
 }
