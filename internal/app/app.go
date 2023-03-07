@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"regexp"
 	"rss-parser/internal/config"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -29,11 +30,19 @@ const refresh_token_file = "refresh_token"
 const close_status = 143
 const dbId = "ba14a6981f5f4efeb3e1cf274a38b1e1"
 const upwork = "Upwork"
+const fl = "fl.ru"
 const newStatus = "Новый"
+const rgxCountry = "country<\\/b>: (.*)\\n"
+const rgxBudget = "budget<\\/b>: (.*)\\n"
+const rgxSkills = "skills<\\/b>:(.*)\\n"
+const rgxHourlyRange = "hourly range<\\/b>: (.*)\\n"
+
+const rgxBudgetFL = "\\(бюджет: (.*)\\  &#8381;\\)"
 
 var access_token = ""
 var refresh_token = ""
 var lastParsedTime time.Time
+var lastParsedTimeFL time.Time
 
 type CreateLeadsResponse struct {
 	Embedded struct {
@@ -58,6 +67,12 @@ type RefreshTokenResponse struct {
 type Item struct {
 	*gofeed.Item
 	Filters map[string]bool
+	Country string
+	Budget  int
+	Hourly  string
+	Type    string
+	Source  string
+	Skills  []string
 }
 
 func Run() {
@@ -71,6 +86,7 @@ func Run() {
 	go func() {
 		for {
 			parse(*cfg, cfg.ParseLinkUpwork)
+			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?category=2")
 			time.Sleep(time.Minute * 5)
 		}
 	}()
@@ -107,12 +123,63 @@ func auth(cfg config.Config) {
 	refresh_token = newToken.RefreshToken
 }
 
+func parseFL(cfg config.Config, parseLink string) {
+	notionClient := notionapi.NewClient(notionapi.Token(cfg.NotionSecret))
+	var budgetTags = regexp.MustCompile(rgxBudgetFL)
+	var results []Item
+
+	fp := gofeed.NewParser()
+	feed, _ := fp.ParseURL(parseLink)
+
+	for _, item := range feed.Items {
+		if lastParsedTimeFL.Before(*item.PublishedParsed) {
+			newItem := new(Item)
+			newItem.Item = item
+
+			matchesBudget := budgetTags.FindStringSubmatch(strings.ToLower(item.Title))
+			//log.Println("matchesBudget ", matchesBudget)
+			if isset(matchesBudget, 1) && matchesBudget[1] != "" {
+				newItem.Budget, _ = strconv.Atoi(strings.Replace(matchesBudget[1], "$", "", -1))
+				newItem.Type = "budget"
+			} else {
+				newItem.Type = "non fixed"
+			}
+			newItem.Skills = item.Categories
+			newItem.Source = fl
+			results = append(results, *newItem)
+			//log.Println("Find one fl")
+			//log.Println(results)
+
+		}
+
+	}
+	//
+	lastParsedTimeFL = *feed.Items[0].PublishedParsed
+
+	for _, item := range results {
+		createNotionPage(notionClient, item)
+		createdLeads, err := createLead(item, cfg)
+		log.Println("Lead was created")
+
+		if err != nil {
+			log.Println(err)
+		}
+		for _, l := range createdLeads.Embedded.Leads {
+			createNote(l.Id, item, cfg)
+		}
+	}
+}
+
 func parse(cfg config.Config, parseLink string) {
 	auth(cfg)
 
 	notionClient := notionapi.NewClient(notionapi.Token(cfg.NotionSecret))
 
 	var searchTags = regexp.MustCompile(cfg.FiltersStr)
+	var countryTags = regexp.MustCompile(rgxCountry)
+	var budgetTags = regexp.MustCompile(rgxBudget)
+	var skillsTags = regexp.MustCompile(rgxSkills)
+	var hourlyTags = regexp.MustCompile(rgxHourlyRange)
 	var excludedSearchTags = regexp.MustCompile(cfg.ExcludedFiltersStr)
 
 	fp := gofeed.NewParser()
@@ -129,6 +196,8 @@ func parse(cfg config.Config, parseLink string) {
 				newItem.Item = item
 				newItem.Filters = make(map[string]bool)
 
+				//newItem
+
 				matches := searchTags.FindAllString(strings.ToLower(item.Description), -1)
 
 				for _, v := range matches {
@@ -136,6 +205,36 @@ func parse(cfg config.Config, parseLink string) {
 						newItem.Filters[v] = true
 					}
 				}
+
+				matchesCountry := countryTags.FindStringSubmatch(strings.ToLower(item.Description))
+				if isset(matchesCountry, 1) && matchesCountry[1] != "" {
+					newItem.Country = matchesCountry[1]
+				}
+				matchesBudget := budgetTags.FindStringSubmatch(strings.ToLower(item.Description))
+				if isset(matchesBudget, 1) && matchesBudget[1] != "" {
+					newItem.Budget, _ = strconv.Atoi(strings.Replace(matchesBudget[1], "$", "", -1))
+					newItem.Type = "budget"
+
+				}
+				matchesSkills := skillsTags.FindStringSubmatch(strings.ToLower(item.Description))
+				if isset(matchesSkills, 1) && matchesSkills[1] != "" {
+					skillStr := strings.Trim(strings.Replace(matchesSkills[1], "$", "", -1), " ")
+					newItem.Skills = strings.Split(skillStr, ",     ")
+				}
+				matchesHourly := hourlyTags.FindStringSubmatch(strings.ToLower(item.Description))
+
+				if isset(matchesHourly, 1) && matchesHourly[1] != "" {
+					newItem.Hourly = matchesHourly[1]
+					newItem.Type = "hourly"
+				}
+				log.Println("matchesBudget:", newItem, matchesBudget, strings.ToLower(item.Description))
+				//for _, v := range matchesCountry {
+				//	//if len(newItem.Filters) < 5 {
+				//	//	newItem.Filters[v] = true
+				//	//}
+				//}
+
+				newItem.Source = upwork
 				results = append(results, *newItem)
 				log.Println("Find one")
 			}
@@ -331,42 +430,106 @@ func writeFile(filepath string, value string) error {
 
 func createNotionPage(client *notionapi.Client, item Item) {
 
-	var techOptions []notionapi.Option
+	var techOptionsFilters []notionapi.Option
 	for filter, _ := range item.Filters {
+		techOptionsFilters = append(techOptionsFilters, notionapi.Option{
+			Name: filter,
+		})
+	}
+	var techOptions []notionapi.Option
+	if len(item.Skills) == 0 {
+		techOptions = techOptionsFilters
+	}
+	for _, filter := range item.Skills {
 		techOptions = append(techOptions, notionapi.Option{
 			Name: filter,
 		})
 	}
 
-	page, err := client.Page.Create(context.Background(), &notionapi.PageCreateRequest{
-		Parent: notionapi.Parent{
-			Type:       notionapi.ParentTypeDatabaseID,
-			DatabaseID: dbId,
-		},
+	country := "Russia"
+	if len(item.Country) > 0 {
+		country = item.Country
+	}
+
+	pageRequest := &notionapi.PageCreateRequest{Parent: notionapi.Parent{
+		Type:       notionapi.ParentTypeDatabaseID,
+		DatabaseID: dbId,
+	},
 		Properties: notionapi.Properties{
 			"Название": notionapi.TitleProperty{
 				Title: []notionapi.RichText{
 					{Text: &notionapi.Text{Content: item.Title}},
 				},
 			},
-			"Ресурс": notionapi.SelectProperty{
-				Select: notionapi.Option{
-					Name: upwork,
-				},
+		}}
+
+	if len(item.Source) > 0 {
+		pageRequest.Properties["Ресурс"] = notionapi.SelectProperty{
+			Select: notionapi.Option{
+				Name: item.Source,
 			},
-			"Статус": notionapi.SelectProperty{
-				Select: notionapi.Option{
-					Name: newStatus,
-				},
-			},
-			"Технологии": notionapi.MultiSelectProperty{
-				MultiSelect: techOptions,
-			},
-			"URL": notionapi.URLProperty{
-				URL: item.Link,
-			},
+		}
+	}
+
+	pageRequest.Properties["Статус"] = notionapi.SelectProperty{
+		Select: notionapi.Option{
+			Name: newStatus,
 		},
-		Children: []notionapi.Block{
+	}
+
+	if len(techOptions) > 0 {
+		pageRequest.Properties["Технологии"] = notionapi.MultiSelectProperty{
+			MultiSelect: techOptions,
+		}
+	}
+	if len(techOptionsFilters) > 0 {
+		pageRequest.Properties["Фильтры"] = notionapi.MultiSelectProperty{
+			MultiSelect: techOptionsFilters,
+		}
+	}
+	if len(item.Link) > 0 {
+		pageRequest.Properties["URL"] = notionapi.URLProperty{
+			URL: item.Link,
+		}
+	}
+	if len(item.Type) > 0 {
+		pageRequest.Properties["Тип"] = notionapi.RichTextProperty{
+			RichText: []notionapi.RichText{
+				{
+					Text: &notionapi.Text{
+						Content: item.Type,
+					},
+					//PlainText: item.Type,
+				},
+			},
+		}
+	}
+	if item.Budget != 0 {
+		pageRequest.Properties["Бюджет"] = notionapi.NumberProperty{
+			Number: float64(item.Budget),
+		}
+	}
+	if len(country) > 0 {
+		pageRequest.Properties["Страна"] = notionapi.SelectProperty{
+			Select: notionapi.Option{
+				Name: strings.Title(country),
+			},
+		}
+	}
+	if len(item.Hourly) > 0 {
+		pageRequest.Properties["Hourly Range"] = notionapi.RichTextProperty{
+			RichText: []notionapi.RichText{
+				{
+					Text: &notionapi.Text{
+						Content: item.Hourly,
+					},
+				},
+			},
+		}
+	}
+
+	if len(item.Description) > 0 {
+		pageRequest.Children = []notionapi.Block{
 			notionapi.Heading1Block{
 				BasicBlock: notionapi.BasicBlock{
 					Object: notionapi.ObjectTypeBlock,
@@ -397,11 +560,109 @@ func createNotionPage(client *notionapi.Client, item Item) {
 					Children: nil,
 				},
 			},
-		},
-	})
+		}
+	}
+
+	page, err := client.Page.Create(context.Background(), pageRequest)
+	//notionapi.PageCreateRequest{
+	//	Parent: notionapi.Parent{
+	//		Type:       notionapi.ParentTypeDatabaseID,
+	//		DatabaseID: dbId,
+	//	},
+	//	Properties: notionapi.Properties{
+	//		"Название": notionapi.TitleProperty{
+	//			Title: []notionapi.RichText{
+	//				{Text: &notionapi.Text{Content: item.Title}},
+	//			},
+	//		},
+	//		"Ресурс": notionapi.SelectProperty{
+	//			Select: notionapi.Option{
+	//				Name: item.Source,
+	//			},
+	//		},
+	//		"Статус": notionapi.SelectProperty{
+	//			Select: notionapi.Option{
+	//				Name: newStatus,
+	//			},
+	//		},
+	//		"Технологии": notionapi.MultiSelectProperty{
+	//			MultiSelect: techOptions,
+	//		},
+	//		"Фильтры": notionapi.MultiSelectProperty{
+	//			MultiSelect: techOptionsFilters,
+	//		},
+	//		"URL": notionapi.URLProperty{
+	//			URL: item.Link,
+	//		},
+	//		"Тип": notionapi.RichTextProperty{
+	//			RichText: []notionapi.RichText{
+	//				{
+	//					Text: &notionapi.Text{
+	//						Content: item.Type,
+	//					},
+	//					//PlainText: item.Type,
+	//				},
+	//			},
+	//		},
+	//		"Бюджет": notionapi.NumberProperty{
+	//			Number: float64(item.Budget),
+	//		},
+	//		"Страна": notionapi.SelectProperty{
+	//			Select: notionapi.Option{
+	//				Name: strings.Title(country),
+	//			},
+	//		},
+	//
+	//		"Hourly Range": notionapi.RichTextProperty{
+	//			RichText: []notionapi.RichText{
+	//				{
+	//					Text: &notionapi.Text{
+	//						Content: item.Hourly,
+	//					},
+	//				},
+	//			},
+	//		},
+	//	},
+	//	Children: []notionapi.Block{
+	//		notionapi.Heading1Block{
+	//			BasicBlock: notionapi.BasicBlock{
+	//				Object: notionapi.ObjectTypeBlock,
+	//				Type:   notionapi.BlockTypeHeading1,
+	//			},
+	//			Heading1: notionapi.Heading{
+	//				RichText: []notionapi.RichText{
+	//					{
+	//						Type: notionapi.ObjectTypeText,
+	//						Text: &notionapi.Text{Content: "Background info"},
+	//					},
+	//				},
+	//			},
+	//		},
+	//		notionapi.ParagraphBlock{
+	//			BasicBlock: notionapi.BasicBlock{
+	//				Object: notionapi.ObjectTypeBlock,
+	//				Type:   notionapi.BlockTypeParagraph,
+	//			},
+	//			Paragraph: notionapi.Paragraph{
+	//				RichText: []notionapi.RichText{
+	//					{
+	//						Text: &notionapi.Text{
+	//							Content: html2text.HTML2Text(item.Description),
+	//						},
+	//					},
+	//				},
+	//				Children: nil,
+	//			},
+	//		},
+	//	},
+	//})
 
 	if err != nil {
 		log.Println(err)
 	}
 	log.Println(page)
+}
+
+func isset(arr []string, index int) bool {
+	return (len(arr) > index)
 }
