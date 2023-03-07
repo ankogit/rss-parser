@@ -66,13 +66,15 @@ type RefreshTokenResponse struct {
 
 type Item struct {
 	*gofeed.Item
-	Filters map[string]bool
-	Country string
-	Budget  int
-	Hourly  string
-	Type    string
-	Source  string
-	Skills  []string
+	Filters    map[string]bool
+	Country    string
+	Budget     int
+	HourlyFrom float64
+	HourlyTo   float64
+	Hourly     string
+	Type       string
+	Source     string
+	Skills     []string
 }
 
 func Run() {
@@ -214,7 +216,8 @@ func parse(cfg config.Config, parseLink string) {
 				if isset(matchesBudget, 1) && matchesBudget[1] != "" {
 					newItem.Budget, _ = strconv.Atoi(strings.Replace(matchesBudget[1], "$", "", -1))
 					newItem.Type = "budget"
-
+				} else {
+					newItem.Type = "non fixed"
 				}
 				matchesSkills := skillsTags.FindStringSubmatch(strings.ToLower(item.Description))
 				if isset(matchesSkills, 1) && matchesSkills[1] != "" {
@@ -225,15 +228,11 @@ func parse(cfg config.Config, parseLink string) {
 
 				if isset(matchesHourly, 1) && matchesHourly[1] != "" {
 					newItem.Hourly = matchesHourly[1]
+					rates := strings.Split(newItem.Hourly, "-")
+					newItem.HourlyFrom, _ = strconv.ParseFloat(strings.Replace(rates[0], "$", "", -1), 32)
+					newItem.HourlyTo, _ = strconv.ParseFloat(strings.Replace(rates[1], "$", "", -1), 32)
 					newItem.Type = "hourly"
 				}
-				log.Println("matchesBudget:", newItem, matchesBudget, strings.ToLower(item.Description))
-				//for _, v := range matchesCountry {
-				//	//if len(newItem.Filters) < 5 {
-				//	//	newItem.Filters[v] = true
-				//	//}
-				//}
-
 				newItem.Source = upwork
 				results = append(results, *newItem)
 				log.Println("Find one")
@@ -527,6 +526,16 @@ func createNotionPage(client *notionapi.Client, item Item) {
 			},
 		}
 	}
+	if item.HourlyFrom > 0 {
+		pageRequest.Properties["Ставка от"] = notionapi.NumberProperty{
+			Number: item.HourlyFrom,
+		}
+	}
+	if item.HourlyTo > 0 {
+		pageRequest.Properties["Ставка до"] = notionapi.NumberProperty{
+			Number: item.HourlyTo,
+		}
+	}
 
 	if len(item.Description) > 0 {
 		pageRequest.Children = []notionapi.Block{
@@ -660,7 +669,7 @@ func createNotionPage(client *notionapi.Client, item Item) {
 	if err != nil {
 		log.Println(err)
 	}
-	log.Println(page)
+	log.Println("Page Created", page)
 }
 
 func isset(arr []string, index int) bool {
