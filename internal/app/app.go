@@ -344,7 +344,7 @@ func createNotionPage(client *notionapi.Client, item Item) {
 			DatabaseID: dbId,
 		},
 		Properties: notionapi.Properties{
-			"ЛПР": notionapi.TitleProperty{
+			"Название": notionapi.TitleProperty{
 				Title: []notionapi.RichText{
 					{Text: &notionapi.Text{Content: item.Title}},
 				},
