@@ -31,6 +31,13 @@ const close_status = 143
 const dbId = "ba14a6981f5f4efeb3e1cf274a38b1e1"
 const upwork = "Upwork"
 const fl = "fl.ru"
+const flDesign = "fl.ru / Дизайн сайтов"
+const flDesignWeb = "fl.ru / Дизайн сайтов (Интерфейсы)"
+const flDesignApp = "fl.ru / Дизайн сайтов (Дизайн интерфейсов приложений)"
+const flMobileApp = "fl.ru / Мобильные приложения"
+const flDevCRM = "fl.ru / Разработка CRM и ERP"
+const flArc = "fl.ru / Проектирование"
+const flIntApp = "fl.ru / Интерактивные приложения"
 const newStatus = "Новый"
 const rgxCountry = "country<\\/b>: (.*)\\n"
 const rgxBudget = "budget<\\/b>: (.*)\\n"
@@ -43,6 +50,13 @@ var access_token = ""
 var refresh_token = ""
 var lastParsedTime time.Time
 var lastParsedTimeFL time.Time
+var lastParsedTimeFLDesign time.Time
+var lastParsedTimeFLDesignWeb time.Time
+var lastParsedTimeFLDesignApp time.Time
+var lastParsedTimeFLMobileApp time.Time
+var lastParsedTimeFLDevCRM time.Time
+var lastParsedTimeFLArc time.Time
+var lastParsedTimeFLIntApp time.Time
 
 type CreateLeadsResponse struct {
 	Embedded struct {
@@ -88,7 +102,29 @@ func Run() {
 	go func() {
 		for {
 			parse(*cfg, cfg.ParseLinkUpwork)
-			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?category=2")
+			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?category=2", fl, &lastParsedTimeFL)
+
+			//Дизайн сайтов
+			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?subcategory=172&category=3", flDesign, &lastParsedTimeFLDesign)
+
+			//Дизайн сайтов (Интерфейсы)
+			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?subcategory=35&category=3", flDesignWeb, &lastParsedTimeFLDesignWeb)
+
+			//Дизайн сайтов (Дизайн интерфейсов приложений)
+			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?subcategory=239&category=3", flDesignApp, &lastParsedTimeFLDesignApp)
+
+			//Мобильные приложения
+			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?category=23", flMobileApp, &lastParsedTimeFLMobileApp)
+
+			//Разработка CRM и ERP
+			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?subcategory=222&category=5", flDevCRM, &lastParsedTimeFLDevCRM)
+
+			//Проектирование
+			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?subcategory=133&category=5", flArc, &lastParsedTimeFLArc)
+
+			//Интерактивные приложения
+			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?subcategory=223&category=5", flIntApp, &lastParsedTimeFLIntApp)
+
 			time.Sleep(time.Minute * 5)
 		}
 	}()
@@ -125,7 +161,7 @@ func auth(cfg config.Config) {
 	refresh_token = newToken.RefreshToken
 }
 
-func parseFL(cfg config.Config, parseLink string) {
+func parseFL(cfg config.Config, parseLink string, source string, timer *time.Time) {
 	notionClient := notionapi.NewClient(notionapi.Token(cfg.NotionSecret))
 	var budgetTags = regexp.MustCompile(rgxBudgetFL)
 	var results []Item
@@ -134,7 +170,7 @@ func parseFL(cfg config.Config, parseLink string) {
 	feed, _ := fp.ParseURL(parseLink)
 
 	for _, item := range feed.Items {
-		if lastParsedTimeFL.Before(*item.PublishedParsed) {
+		if timer.Before(*item.PublishedParsed) {
 			newItem := new(Item)
 			newItem.Item = item
 
@@ -147,7 +183,7 @@ func parseFL(cfg config.Config, parseLink string) {
 				newItem.Type = "non fixed"
 			}
 			newItem.Skills = item.Categories
-			newItem.Source = fl
+			newItem.Source = source
 			results = append(results, *newItem)
 			//log.Println("Find one fl")
 			//log.Println(results)
@@ -156,7 +192,7 @@ func parseFL(cfg config.Config, parseLink string) {
 
 	}
 	//
-	lastParsedTimeFL = *feed.Items[0].PublishedParsed
+	timer = feed.Items[0].PublishedParsed
 
 	for _, item := range results {
 		createNotionPage(notionClient, item)
