@@ -30,7 +30,7 @@ const refresh_token_file = "refresh_token"
 const close_status = 143
 const dbId = "ba14a6981f5f4efeb3e1cf274a38b1e1"
 const upwork = "Upwork"
-const fl = "fl.ru"
+const flDevWeb = "fl.ru / Разработка сайтов"
 const flDesign = "fl.ru / Дизайн сайтов"
 const flDesignWeb = "fl.ru / Дизайн сайтов (Интерфейсы)"
 const flDesignApp = "fl.ru / Дизайн сайтов (Дизайн интерфейсов приложений)"
@@ -102,7 +102,7 @@ func Run() {
 	go func() {
 		for {
 			parse(*cfg, cfg.ParseLinkUpwork)
-			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?category=2", fl, &lastParsedTimeFL)
+			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?category=2", flDevWeb, &lastParsedTimeFL)
 
 			//Дизайн сайтов
 			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?subcategory=172&category=3", flDesign, &lastParsedTimeFLDesign)
