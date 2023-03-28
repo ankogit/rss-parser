@@ -1,16 +1,11 @@
 package app
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
 	"github.com/jomei/notionapi"
-	"github.com/k3a/html2text"
+	"github.com/mehanizm/airtable"
 	"github.com/mmcdole/gofeed"
 	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"regexp"
@@ -58,6 +53,12 @@ var lastParsedTimeFLDevCRM time.Time
 var lastParsedTimeFLArc time.Time
 var lastParsedTimeFLIntApp time.Time
 
+type ParsingClients struct {
+	NotionClient   *notionapi.Client
+	AirTableClient *airtable.Client
+	AirTableTable  *airtable.Table
+}
+
 type CreateLeadsResponse struct {
 	Embedded struct {
 		Leads []struct {
@@ -98,43 +99,52 @@ func Run() {
 		log.Panicln(err)
 		return
 	}
+	notionClient := notionapi.NewClient(notionapi.Token(cfg.NotionSecret))
+	airTableClient := airtable.NewClient(cfg.AirTableSecret)
+	airTable := airTableClient.GetTable(cfg.AirTableDatabase, cfg.AirTableTable)
 
+	parsingClients := ParsingClients{
+		NotionClient:   notionClient,
+		AirTableClient: airTableClient,
+		AirTableTable:  airTable,
+	}
 	go func() {
 		for {
-			parse(*cfg, cfg.ParseLinkUpwork)
-			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?category=2", flDevWeb, &lastParsedTimeFL)
+			parseUpwork(*cfg, parsingClients, cfg.ParseLinkUpwork)
+
+			parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?category=2", flDevWeb, &lastParsedTimeFL)
 
 			//Дизайн сайтов
-			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?subcategory=172&category=3", flDesign, &lastParsedTimeFLDesign)
+			parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?subcategory=172&category=3", flDesign, &lastParsedTimeFLDesign)
 
 			//Дизайн сайтов (Интерфейсы)
-			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?subcategory=35&category=3", flDesignWeb, &lastParsedTimeFLDesignWeb)
+			parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?subcategory=35&category=3", flDesignWeb, &lastParsedTimeFLDesignWeb)
 
 			//Дизайн сайтов (Дизайн интерфейсов приложений)
-			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?subcategory=239&category=3", flDesignApp, &lastParsedTimeFLDesignApp)
+			parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?subcategory=239&category=3", flDesignApp, &lastParsedTimeFLDesignApp)
 
 			//Мобильные приложения
-			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?category=23", flMobileApp, &lastParsedTimeFLMobileApp)
+			parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?category=23", flMobileApp, &lastParsedTimeFLMobileApp)
 
 			//Разработка CRM и ERP
-			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?subcategory=222&category=5", flDevCRM, &lastParsedTimeFLDevCRM)
+			parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?subcategory=222&category=5", flDevCRM, &lastParsedTimeFLDevCRM)
 
 			//Проектирование
-			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?subcategory=133&category=5", flArc, &lastParsedTimeFLArc)
+			parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?subcategory=133&category=5", flArc, &lastParsedTimeFLArc)
 
 			//Интерактивные приложения
-			parseFL(*cfg, "https://www.fl.ru/rss/all.xml?subcategory=223&category=5", flIntApp, &lastParsedTimeFLIntApp)
+			parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?subcategory=223&category=5", flIntApp, &lastParsedTimeFLIntApp)
 
 			time.Sleep(time.Minute * 5)
 		}
 	}()
 
-	go func() {
-		for {
-			removeOldLeads(*cfg)
-			time.Sleep(time.Hour * 6)
-		}
-	}()
+	//go func() {
+	//	for {
+	//		removeOldLeads(*cfg)
+	//		time.Sleep(time.Hour * 6)
+	//	}
+	//}()
 
 	//
 	// Graceful Shutdown
@@ -149,20 +159,7 @@ func Run() {
 
 }
 
-func auth(cfg config.Config) {
-	access_token = readFile(access_token_file)
-	refresh_token = readFile(refresh_token_file)
-
-	newToken, err := refreshToken(cfg)
-	if err != nil {
-		log.Fatal(err)
-	}
-	access_token = newToken.AccessToken
-	refresh_token = newToken.RefreshToken
-}
-
-func parseFL(cfg config.Config, parseLink string, source string, timer *time.Time) {
-	notionClient := notionapi.NewClient(notionapi.Token(cfg.NotionSecret))
+func parseFL(cfg config.Config, parseClients ParsingClients, parseLink string, source string, timer *time.Time) {
 	var budgetTags = regexp.MustCompile(rgxBudgetFL)
 	var results []Item
 
@@ -175,7 +172,6 @@ func parseFL(cfg config.Config, parseLink string, source string, timer *time.Tim
 			newItem.Item = item
 
 			matchesBudget := budgetTags.FindStringSubmatch(strings.ToLower(item.Title))
-			//log.Println("matchesBudget ", matchesBudget)
 			if isset(matchesBudget, 1) && matchesBudget[1] != "" {
 				newItem.Budget, _ = strconv.Atoi(strings.Replace(matchesBudget[1], "$", "", -1))
 				newItem.Type = "budget"
@@ -185,34 +181,15 @@ func parseFL(cfg config.Config, parseLink string, source string, timer *time.Tim
 			newItem.Skills = item.Categories
 			newItem.Source = source
 			results = append(results, *newItem)
-			//log.Println("Find one fl")
-			//log.Println(results)
-
 		}
 
 	}
-	//
 	timer = feed.Items[0].PublishedParsed
 
-	for _, item := range results {
-		createNotionPage(notionClient, item)
-		createdLeads, err := createLead(item, cfg)
-		log.Println("Lead was created")
-
-		if err != nil {
-			log.Println(err)
-		}
-		for _, l := range createdLeads.Embedded.Leads {
-			createNote(l.Id, item, cfg)
-		}
-	}
+	createRecords(cfg, parseClients, results)
 }
 
-func parse(cfg config.Config, parseLink string) {
-	auth(cfg)
-
-	notionClient := notionapi.NewClient(notionapi.Token(cfg.NotionSecret))
-
+func parseUpwork(cfg config.Config, parseClients ParsingClients, parseLink string) {
 	var searchTags = regexp.MustCompile(cfg.FiltersStr)
 	var countryTags = regexp.MustCompile(rgxCountry)
 	var budgetTags = regexp.MustCompile(rgxBudget)
@@ -235,7 +212,6 @@ func parse(cfg config.Config, parseLink string) {
 				newItem.Filters = make(map[string]bool)
 
 				//newItem
-
 				matches := searchTags.FindAllString(strings.ToLower(item.Description), -1)
 
 				for _, v := range matches {
@@ -278,167 +254,30 @@ func parse(cfg config.Config, parseLink string) {
 
 	lastParsedTime = *feed.Items[0].PublishedParsed
 
-	for _, item := range results {
-		createNotionPage(notionClient, item)
-		createdLeads, err := createLead(item, cfg)
-		log.Println("Lead was created")
-
-		if err != nil {
-			log.Println(err)
-		}
-		for _, l := range createdLeads.Embedded.Leads {
-			createNote(l.Id, item, cfg)
-		}
-	}
+	createRecords(cfg, parseClients, results)
 }
 
-func createLead(item Item, cfg config.Config) (result CreateLeadsResponse, err error) {
-	httpClient := &http.Client{}
-	tagsStr := KeysString(item.Filters)
-	postBody := []byte(fmt.Sprintf(`[{
-"name":"%v",
-"_embedded": {
-            "tags": [
-                %v
-            ]
-        },
-"custom_fields_values": [
-{"field_id": %v,"values": [{"value": "%v"}]},
-{"field_id": %v,"values": [{"value": "%v"}]}
-] }]`, item.Title, tagsStr, link_field_id, item.Link, place_field_id, upworkPlace))
-	responseBody := bytes.NewBuffer(postBody)
-	req, _ := http.NewRequest("POST", cfg.AmoCrmEndPoint+"/api/v4/leads", responseBody)
-	req.Header.Set("Authorization", "Bearer "+access_token)
-	response, err := httpClient.Do(req)
-	if err != nil {
-		log.Fatalf("An Error Occured %v", err)
+func createRecords(cfg config.Config, clients ParsingClients, results []Item) {
+	if clients.AirTableClient != nil {
+		createAirtableRecords(clients.AirTableTable, results)
 	}
-	defer response.Body.Close()
-	//body, _ := ioutil.ReadAll(response.Body)
-	//fmt.Println("response Body:", string(body))
-	//log.Println(access_token)
-	err = json.NewDecoder(response.Body).Decode(&result)
-	if err != nil {
-		return result, err
-	}
-	log.Println(result)
-	return result, nil
-}
-
-// Отправить примечание к сделке
-func createNote(leadId int, item Item, cfg config.Config) {
-	httpClient := &http.Client{}
-	postBody := []byte(fmt.Sprintf(`[{"note_type": "common","params": {"text":  "%v"}}]`, html2text.HTML2Text(item.Description)))
-	responseBody := bytes.NewBuffer(postBody)
-	req, _ := http.NewRequest("POST", fmt.Sprintf(cfg.AmoCrmEndPoint+"/api/v4/leads/%v/notes", leadId), responseBody)
-	req.Header.Set("Authorization", "Bearer "+access_token)
-	response, err := httpClient.Do(req)
-	if err != nil {
-		log.Fatalf("An Error Occured %v", err)
-	}
-	defer response.Body.Close()
-	body, _ := ioutil.ReadAll(response.Body)
-	fmt.Println("response Body:", string(body))
-}
-
-func removeOldLeads(cfg config.Config) error {
-	log.Println("Start removing")
-	auth(cfg)
-	httpClient := &http.Client{}
-	req, _ := http.NewRequest("GET", cfg.AmoCrmEndPoint+"/api/v4/leads?page=1&limit=100&filter[statuses][0][status_id]=54816778&filter[statuses][0][pipeline_id]=6406018", nil)
-	req.Header.Set("Authorization", "Bearer "+access_token)
-	response, err := httpClient.Do(req)
-	if err != nil {
-		log.Fatalf("An Error Occured %v", err)
-	}
-	defer response.Body.Close()
-	//body, _ := ioutil.ReadAll(response.Body)
-	//log.Println("response Body:", string(body))
-	//log.Println(access_token)
-
-	var result CreateLeadsResponse
-	err = json.NewDecoder(response.Body).Decode(&result)
-	if err != nil {
-		return err
-	}
-
-	var request []UpdateLeadsRequest
-
-	for _, lead := range result.Embedded.Leads {
-		// Calling Unix method
-		if lead.CreatedAt <= time.Now().AddDate(0, 0, -2).Unix() {
-			request = append(request, UpdateLeadsRequest{
-				Id:       lead.Id,
-				StatusId: close_status,
-			})
+	
+	if clients.NotionClient != nil {
+		for _, item := range results {
+			createNotionPage(clients.NotionClient, item)
 		}
 	}
 
-	postBody, err := json.Marshal(request)
-	responseBody := bytes.NewBuffer(postBody)
-	req, _ = http.NewRequest("PATCH", cfg.AmoCrmEndPoint+"/api/v4/leads", responseBody)
-	req.Header.Set("Authorization", "Bearer "+access_token)
-	response, _ = httpClient.Do(req)
-	//if err != nil {
-	//	//log.Fatalf("An Error Occured %v", err)
-	//}
-	defer response.Body.Close()
-	//body, _ := ioutil.ReadAll(response.Body)
-	//fmt.Println("response Body:", string(body))
-	log.Println("End removing")
-
-	return nil
 }
 
-func refreshToken(cfg config.Config) (result RefreshTokenResponse, err error) {
-	httpClient := &http.Client{}
-	var refreshJson RefreshJson
-	refreshJson.RefreshToken = refresh_token
-	refreshJson.ClientSecret = cfg.ClientSecret
-	refreshJson.ClientId = cfg.ClientId
-	refreshJson.RedirectUri = cfg.RedirectUri
-	refreshJson.GrantType = grant_type_refresh
-	postBody, err := json.Marshal(refreshJson)
-	if err != nil {
-		fmt.Println(err)
-		return result, err
+func KeysString(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
 	}
-	req, _ := http.NewRequest("POST", cfg.AmoCrmEndPoint+"/oauth2/access_token", bytes.NewBuffer(postBody))
-	req.Header.Set("Content-Type", "application/json")
-
-	response, err := httpClient.Do(req)
-	if err != nil {
-		log.Fatalf("An Error Occured %v", err)
-	}
-	defer response.Body.Close()
-	//body, _ := ioutil.ReadAll(response.Body)
-	//fmt.Println("response Body:", string(body))
-	err = json.NewDecoder(response.Body).Decode(&result)
-	if err != nil {
-		return result, err
-	}
-
-	err = writeFile(access_token_file, result.AccessToken)
-	if err != nil {
-		return RefreshTokenResponse{}, err
-
-	}
-	err = writeFile(refresh_token_file, result.RefreshToken)
-	if err != nil {
-		return RefreshTokenResponse{}, err
-	}
-	return result, nil
+	return keys
 }
-
-type RefreshJson struct {
-	ClientId     string `json:"client_id"`
-	ClientSecret string `json:"client_secret"`
-	GrantType    string `json:"grant_type"`
-	RefreshToken string `json:"refresh_token"`
-	RedirectUri  string `json:"redirect_uri"`
-}
-
-func KeysString(m map[string]bool) string {
+func KeysStringAmoCRM(m map[string]bool) string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -461,251 +300,6 @@ func writeFile(filepath string, value string) error {
 		return err
 	}
 	return nil
-}
-
-func createNotionPage(client *notionapi.Client, item Item) {
-
-	var techOptionsFilters []notionapi.Option
-	for filter, _ := range item.Filters {
-		techOptionsFilters = append(techOptionsFilters, notionapi.Option{
-			Name: filter,
-		})
-	}
-	var techOptions []notionapi.Option
-	if len(item.Skills) == 0 {
-		techOptions = techOptionsFilters
-	}
-	for _, filter := range item.Skills {
-		techOptions = append(techOptions, notionapi.Option{
-			Name: filter,
-		})
-	}
-
-	country := "Russia"
-	if len(item.Country) > 0 {
-		country = item.Country
-	}
-
-	pageRequest := &notionapi.PageCreateRequest{Parent: notionapi.Parent{
-		Type:       notionapi.ParentTypeDatabaseID,
-		DatabaseID: dbId,
-	},
-		Properties: notionapi.Properties{
-			"Название": notionapi.TitleProperty{
-				Title: []notionapi.RichText{
-					{Text: &notionapi.Text{Content: item.Title}},
-				},
-			},
-		}}
-
-	if len(item.Source) > 0 {
-		pageRequest.Properties["Ресурс"] = notionapi.SelectProperty{
-			Select: notionapi.Option{
-				Name: item.Source,
-			},
-		}
-	}
-
-	pageRequest.Properties["Статус"] = notionapi.SelectProperty{
-		Select: notionapi.Option{
-			Name: newStatus,
-		},
-	}
-
-	if len(techOptions) > 0 {
-		pageRequest.Properties["Технологии"] = notionapi.MultiSelectProperty{
-			MultiSelect: techOptions,
-		}
-	}
-	if len(techOptionsFilters) > 0 {
-		pageRequest.Properties["Фильтры"] = notionapi.MultiSelectProperty{
-			MultiSelect: techOptionsFilters,
-		}
-	}
-	if len(item.Link) > 0 {
-		pageRequest.Properties["URL"] = notionapi.URLProperty{
-			URL: item.Link,
-		}
-	}
-	if len(item.Type) > 0 {
-		pageRequest.Properties["Тип"] = notionapi.RichTextProperty{
-			RichText: []notionapi.RichText{
-				{
-					Text: &notionapi.Text{
-						Content: item.Type,
-					},
-					//PlainText: item.Type,
-				},
-			},
-		}
-	}
-	if item.Budget != 0 {
-		pageRequest.Properties["Бюджет"] = notionapi.NumberProperty{
-			Number: float64(item.Budget),
-		}
-	}
-	if len(country) > 0 {
-		pageRequest.Properties["Страна"] = notionapi.SelectProperty{
-			Select: notionapi.Option{
-				Name: strings.Title(country),
-			},
-		}
-	}
-	if len(item.Hourly) > 0 {
-		pageRequest.Properties["Hourly Range"] = notionapi.RichTextProperty{
-			RichText: []notionapi.RichText{
-				{
-					Text: &notionapi.Text{
-						Content: item.Hourly,
-					},
-				},
-			},
-		}
-	}
-	if item.HourlyFrom > 0 {
-		pageRequest.Properties["Ставка от"] = notionapi.NumberProperty{
-			Number: item.HourlyFrom,
-		}
-	}
-	if item.HourlyTo > 0 {
-		pageRequest.Properties["Ставка до"] = notionapi.NumberProperty{
-			Number: item.HourlyTo,
-		}
-	}
-
-	if len(item.Description) > 0 {
-		pageRequest.Children = []notionapi.Block{
-			notionapi.Heading1Block{
-				BasicBlock: notionapi.BasicBlock{
-					Object: notionapi.ObjectTypeBlock,
-					Type:   notionapi.BlockTypeHeading1,
-				},
-				Heading1: notionapi.Heading{
-					RichText: []notionapi.RichText{
-						{
-							Type: notionapi.ObjectTypeText,
-							Text: &notionapi.Text{Content: "Background info"},
-						},
-					},
-				},
-			},
-			notionapi.ParagraphBlock{
-				BasicBlock: notionapi.BasicBlock{
-					Object: notionapi.ObjectTypeBlock,
-					Type:   notionapi.BlockTypeParagraph,
-				},
-				Paragraph: notionapi.Paragraph{
-					RichText: []notionapi.RichText{
-						{
-							Text: &notionapi.Text{
-								Content: html2text.HTML2Text(item.Description),
-							},
-						},
-					},
-					Children: nil,
-				},
-			},
-		}
-	}
-
-	page, err := client.Page.Create(context.Background(), pageRequest)
-	//notionapi.PageCreateRequest{
-	//	Parent: notionapi.Parent{
-	//		Type:       notionapi.ParentTypeDatabaseID,
-	//		DatabaseID: dbId,
-	//	},
-	//	Properties: notionapi.Properties{
-	//		"Название": notionapi.TitleProperty{
-	//			Title: []notionapi.RichText{
-	//				{Text: &notionapi.Text{Content: item.Title}},
-	//			},
-	//		},
-	//		"Ресурс": notionapi.SelectProperty{
-	//			Select: notionapi.Option{
-	//				Name: item.Source,
-	//			},
-	//		},
-	//		"Статус": notionapi.SelectProperty{
-	//			Select: notionapi.Option{
-	//				Name: newStatus,
-	//			},
-	//		},
-	//		"Технологии": notionapi.MultiSelectProperty{
-	//			MultiSelect: techOptions,
-	//		},
-	//		"Фильтры": notionapi.MultiSelectProperty{
-	//			MultiSelect: techOptionsFilters,
-	//		},
-	//		"URL": notionapi.URLProperty{
-	//			URL: item.Link,
-	//		},
-	//		"Тип": notionapi.RichTextProperty{
-	//			RichText: []notionapi.RichText{
-	//				{
-	//					Text: &notionapi.Text{
-	//						Content: item.Type,
-	//					},
-	//					//PlainText: item.Type,
-	//				},
-	//			},
-	//		},
-	//		"Бюджет": notionapi.NumberProperty{
-	//			Number: float64(item.Budget),
-	//		},
-	//		"Страна": notionapi.SelectProperty{
-	//			Select: notionapi.Option{
-	//				Name: strings.Title(country),
-	//			},
-	//		},
-	//
-	//		"Hourly Range": notionapi.RichTextProperty{
-	//			RichText: []notionapi.RichText{
-	//				{
-	//					Text: &notionapi.Text{
-	//						Content: item.Hourly,
-	//					},
-	//				},
-	//			},
-	//		},
-	//	},
-	//	Children: []notionapi.Block{
-	//		notionapi.Heading1Block{
-	//			BasicBlock: notionapi.BasicBlock{
-	//				Object: notionapi.ObjectTypeBlock,
-	//				Type:   notionapi.BlockTypeHeading1,
-	//			},
-	//			Heading1: notionapi.Heading{
-	//				RichText: []notionapi.RichText{
-	//					{
-	//						Type: notionapi.ObjectTypeText,
-	//						Text: &notionapi.Text{Content: "Background info"},
-	//					},
-	//				},
-	//			},
-	//		},
-	//		notionapi.ParagraphBlock{
-	//			BasicBlock: notionapi.BasicBlock{
-	//				Object: notionapi.ObjectTypeBlock,
-	//				Type:   notionapi.BlockTypeParagraph,
-	//			},
-	//			Paragraph: notionapi.Paragraph{
-	//				RichText: []notionapi.RichText{
-	//					{
-	//						Text: &notionapi.Text{
-	//							Content: html2text.HTML2Text(item.Description),
-	//						},
-	//					},
-	//				},
-	//				Children: nil,
-	//			},
-	//		},
-	//	},
-	//})
-
-	if err != nil {
-		log.Println(err)
-	}
-	log.Println("Page Created", page)
 }
 
 func isset(arr []string, index int) bool {

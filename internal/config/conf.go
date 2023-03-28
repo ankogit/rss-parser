@@ -17,6 +17,9 @@ type Config struct {
 	AmoCrmEndPoint     string `envconfig:"AMOCRM_ENDPOINT"`
 	ParsePerMinute     string `envconfig:"PARSE_PER_MINUTE"`
 	NotionSecret       string `envconfig:"NOTION_SECRET"`
+	AirTableSecret     string `envconfig:"AIRTABLE_SECRET"`
+	AirTableDatabase   string `envconfig:"AIRTABLE_DATABASE"`
+	AirTableTable      string `envconfig:"AIRTABLE_Table"`
 }
 
 // Init populates Config struct with values from config file
