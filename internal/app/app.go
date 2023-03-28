@@ -246,7 +246,7 @@ func parseUpwork(cfg config.Config, parseClients ParsingClients, parseLink strin
 				if isset(matchesHourly, 1) && matchesHourly[1] != "" {
 					newItem.Hourly = matchesHourly[1]
 					rates := strings.Split(newItem.Hourly, "-")
-					if rates[0] != "" && rates[1] != "" {
+					if len(rates) == 2 {
 						newItem.HourlyFrom, _ = strconv.ParseFloat(strings.Replace(rates[0], "$", "", -1), 32)
 						newItem.HourlyTo, _ = strconv.ParseFloat(strings.Replace(rates[1], "$", "", -1), 32)
 					}
