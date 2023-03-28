@@ -230,7 +230,6 @@ func parseUpwork(cfg config.Config, parseClients ParsingClients, parseLink strin
 					newItem.Budget, err = strconv.Atoi(strings.Replace(matchesBudget[1], "$", "", -1))
 					if err != nil {
 						log.Println(err)
-						panic(1)
 					}
 					newItem.Type = "budget"
 				} else {
