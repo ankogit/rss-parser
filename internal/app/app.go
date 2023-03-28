@@ -99,12 +99,12 @@ func Run() {
 		log.Panicln(err)
 		return
 	}
-	notionClient := notionapi.NewClient(notionapi.Token(cfg.NotionSecret))
+	//notionClient := notionapi.NewClient(notionapi.Token(cfg.NotionSecret))
 	airTableClient := airtable.NewClient(cfg.AirTableSecret)
 	airTable := airTableClient.GetTable(cfg.AirTableDatabase, cfg.AirTableTable)
 
 	parsingClients := ParsingClients{
-		NotionClient:   notionClient,
+		//NotionClient:   notionClient,
 		AirTableClient: airTableClient,
 		AirTableTable:  airTable,
 	}
@@ -226,7 +226,12 @@ func parseUpwork(cfg config.Config, parseClients ParsingClients, parseLink strin
 				}
 				matchesBudget := budgetTags.FindStringSubmatch(strings.ToLower(item.Description))
 				if isset(matchesBudget, 1) && matchesBudget[1] != "" {
-					newItem.Budget, _ = strconv.Atoi(strings.Replace(matchesBudget[1], "$", "", -1))
+					var err error
+					newItem.Budget, err = strconv.Atoi(strings.Replace(matchesBudget[1], "$", "", -1))
+					if err != nil {
+						log.Println(err)
+						panic(1)
+					}
 					newItem.Type = "budget"
 				} else {
 					newItem.Type = "non fixed"
@@ -241,8 +246,11 @@ func parseUpwork(cfg config.Config, parseClients ParsingClients, parseLink strin
 				if isset(matchesHourly, 1) && matchesHourly[1] != "" {
 					newItem.Hourly = matchesHourly[1]
 					rates := strings.Split(newItem.Hourly, "-")
-					newItem.HourlyFrom, _ = strconv.ParseFloat(strings.Replace(rates[0], "$", "", -1), 32)
-					newItem.HourlyTo, _ = strconv.ParseFloat(strings.Replace(rates[1], "$", "", -1), 32)
+					if rates[0] != "" && rates[1] != "" {
+						newItem.HourlyFrom, _ = strconv.ParseFloat(strings.Replace(rates[0], "$", "", -1), 32)
+						newItem.HourlyTo, _ = strconv.ParseFloat(strings.Replace(rates[1], "$", "", -1), 32)
+					}
+
 					newItem.Type = "hourly"
 				}
 				newItem.Source = upwork
@@ -261,7 +269,7 @@ func createRecords(cfg config.Config, clients ParsingClients, results []Item) {
 	if clients.AirTableClient != nil {
 		createAirtableRecords(clients.AirTableTable, results)
 	}
-	
+
 	if clients.NotionClient != nil {
 		for _, item := range results {
 			createNotionPage(clients.NotionClient, item)

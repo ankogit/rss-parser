@@ -34,9 +34,7 @@ func createAirtableRecords(airTable *airtable.Table, records []Item) {
 			fields["Tags"] = KeysString(item.Filters)
 			fields["Technologies"] = item.Skills
 
-			if item.Budget == 0 {
-				fields["Budget"] = item.Budget
-			}
+			fields["Budget"] = item.Budget
 
 			if item.Hourly == "" {
 				fields["Hourly range"] = item.Hourly
