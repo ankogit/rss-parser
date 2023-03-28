@@ -99,12 +99,12 @@ func Run() {
 		log.Panicln(err)
 		return
 	}
-	//notionClient := notionapi.NewClient(notionapi.Token(cfg.NotionSecret))
+	notionClient := notionapi.NewClient(notionapi.Token(cfg.NotionSecret))
 	airTableClient := airtable.NewClient(cfg.AirTableSecret)
 	airTable := airTableClient.GetTable(cfg.AirTableDatabase, cfg.AirTableTable)
 
 	parsingClients := ParsingClients{
-		//NotionClient:   notionClient,
+		NotionClient:   notionClient,
 		AirTableClient: airTableClient,
 		AirTableTable:  airTable,
 	}

@@ -36,14 +36,14 @@ func createAirtableRecords(airTable *airtable.Table, records []Item) {
 
 			fields["Budget"] = item.Budget
 
-			if item.Hourly == "" {
+			if item.Hourly != "" {
 				fields["Hourly range"] = item.Hourly
 			}
-			if item.HourlyFrom == 0 {
-				fields["Rate from"] = item.HourlyFrom
+			if item.HourlyFrom != 0 {
+				fields["Hour rate from"] = item.HourlyFrom
 			}
-			if item.HourlyTo == 0 {
-				fields["Rate to"] = item.HourlyTo
+			if item.HourlyTo != 0 {
+				fields["Hour rate to"] = item.HourlyTo
 			}
 
 			recordsToSend.Records = append(recordsToSend.Records, &airtable.Record{
