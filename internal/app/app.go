@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"github.com/jomei/notionapi"
 	"github.com/mehanizm/airtable"
 	"github.com/mmcdole/gofeed"
@@ -101,39 +102,52 @@ func Run() {
 	}
 	notionClient := notionapi.NewClient(notionapi.Token(cfg.NotionSecret))
 	airTableClient := airtable.NewClient(cfg.AirTableSecret)
-	airTable := airTableClient.GetTable(cfg.AirTableDatabase, cfg.AirTableTable)
 
-	parsingClients := ParsingClients{
+	//airTable := airTableClient.GetTable(cfg.AirTableDatabase, cfg.AirTableTable)
+	airTableUpwork := airTableClient.GetTable(cfg.AirTableDatabase, cfg.AirTableTableUpwork)
+	airTableFL := airTableClient.GetTable(cfg.AirTableDatabase, cfg.AirTableTableFL)
+
+	//parsingClients := ParsingClients{
+	//	NotionClient:   notionClient,
+	//	AirTableClient: airTableClient,
+	//	AirTableTable:  airTable,
+	//}
+	parsingClientsUpwork := ParsingClients{
 		NotionClient:   notionClient,
 		AirTableClient: airTableClient,
-		AirTableTable:  airTable,
+		AirTableTable:  airTableUpwork,
+	}
+	parsingClientsFL := ParsingClients{
+		NotionClient:   notionClient,
+		AirTableClient: airTableClient,
+		AirTableTable:  airTableFL,
 	}
 	go func() {
 		for {
-			parseUpwork(*cfg, parsingClients, cfg.ParseLinkUpwork)
+			parseUpwork(*cfg, parsingClientsUpwork, cfg.ParseLinkUpwork)
 
-			parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?category=2", flDevWeb, &lastParsedTimeFL)
+			//parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?category=2", flDevWeb, &lastParsedTimeFL)
 
 			//Дизайн сайтов
-			parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?subcategory=172&category=3", flDesign, &lastParsedTimeFLDesign)
+			parseFL(*cfg, parsingClientsFL, "https://www.fl.ru/rss/all.xml?subcategory=172&category=3", flDesign, &lastParsedTimeFLDesign)
 
 			//Дизайн сайтов (Интерфейсы)
-			parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?subcategory=35&category=3", flDesignWeb, &lastParsedTimeFLDesignWeb)
+			parseFL(*cfg, parsingClientsFL, "https://www.fl.ru/rss/all.xml?subcategory=35&category=3", flDesignWeb, &lastParsedTimeFLDesignWeb)
 
 			//Дизайн сайтов (Дизайн интерфейсов приложений)
-			parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?subcategory=239&category=3", flDesignApp, &lastParsedTimeFLDesignApp)
+			parseFL(*cfg, parsingClientsFL, "https://www.fl.ru/rss/all.xml?subcategory=239&category=3", flDesignApp, &lastParsedTimeFLDesignApp)
 
 			//Мобильные приложения
-			parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?category=23", flMobileApp, &lastParsedTimeFLMobileApp)
+			//parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?category=23", flMobileApp, &lastParsedTimeFLMobileApp)
 
 			//Разработка CRM и ERP
-			parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?subcategory=222&category=5", flDevCRM, &lastParsedTimeFLDevCRM)
+			//parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?subcategory=222&category=5", flDevCRM, &lastParsedTimeFLDevCRM)
 
 			//Проектирование
-			parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?subcategory=133&category=5", flArc, &lastParsedTimeFLArc)
+			//parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?subcategory=133&category=5", flArc, &lastParsedTimeFLArc)
 
 			//Интерактивные приложения
-			parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?subcategory=223&category=5", flIntApp, &lastParsedTimeFLIntApp)
+			//parseFL(*cfg, parsingClients, "https://www.fl.ru/rss/all.xml?subcategory=223&category=5", flIntApp, &lastParsedTimeFLIntApp)
 
 			time.Sleep(time.Minute * 5)
 		}
@@ -190,7 +204,7 @@ func parseFL(cfg config.Config, parseClients ParsingClients, parseLink string, s
 }
 
 func parseUpwork(cfg config.Config, parseClients ParsingClients, parseLink string) {
-	var searchTags = regexp.MustCompile(cfg.FiltersStr)
+	var searchTags = regexp.MustCompile(fmt.Sprintf("\\b(%v)\\b", cfg.FiltersStr))
 	var countryTags = regexp.MustCompile(rgxCountry)
 	var budgetTags = regexp.MustCompile(rgxBudget)
 	var skillsTags = regexp.MustCompile(rgxSkills)
@@ -206,6 +220,7 @@ func parseUpwork(cfg config.Config, parseClients ParsingClients, parseLink strin
 			if excludedSearchTags.MatchString(strings.ToLower(item.Description)) {
 				continue
 			}
+
 			if searchTags.MatchString(strings.ToLower(item.Description)) {
 				newItem := new(Item)
 				newItem.Item = item

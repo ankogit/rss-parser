@@ -54,7 +54,7 @@ func createAirtableRecords(airTable *airtable.Table, records []Item) {
 		_, err := airTable.AddRecords(recordsToSend)
 		if err != nil {
 			log.Println(err.Error())
-			log.Panic(err)
+			//log.Panic(err)
 		}
 	}
 

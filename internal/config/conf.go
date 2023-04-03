@@ -8,18 +8,20 @@ import (
 )
 
 type Config struct {
-	ClientId           string `envconfig:"CLIENT_ID"`
-	ClientSecret       string `envconfig:"CLIENT_SECRET"`
-	RedirectUri        string `envconfig:"REDIRECT_URI"`
-	ParseLinkUpwork    string `envconfig:"PARSE_LINK_UPWORK"`
-	FiltersStr         string `envconfig:"FILTERS_STR"`
-	ExcludedFiltersStr string `envconfig:"EXCLUDED_FILTERS_STR"`
-	AmoCrmEndPoint     string `envconfig:"AMOCRM_ENDPOINT"`
-	ParsePerMinute     string `envconfig:"PARSE_PER_MINUTE"`
-	NotionSecret       string `envconfig:"NOTION_SECRET"`
-	AirTableSecret     string `envconfig:"AIRTABLE_SECRET"`
-	AirTableDatabase   string `envconfig:"AIRTABLE_DATABASE"`
-	AirTableTable      string `envconfig:"AIRTABLE_Table"`
+	ClientId            string `envconfig:"CLIENT_ID"`
+	ClientSecret        string `envconfig:"CLIENT_SECRET"`
+	RedirectUri         string `envconfig:"REDIRECT_URI"`
+	ParseLinkUpwork     string `envconfig:"PARSE_LINK_UPWORK"`
+	FiltersStr          string `envconfig:"FILTERS_STR"`
+	ExcludedFiltersStr  string `envconfig:"EXCLUDED_FILTERS_STR"`
+	AmoCrmEndPoint      string `envconfig:"AMOCRM_ENDPOINT"`
+	ParsePerMinute      string `envconfig:"PARSE_PER_MINUTE"`
+	NotionSecret        string `envconfig:"NOTION_SECRET"`
+	AirTableSecret      string `envconfig:"AIRTABLE_SECRET"`
+	AirTableDatabase    string `envconfig:"AIRTABLE_DATABASE"`
+	AirTableTable       string `envconfig:"AIRTABLE_TABLE"`
+	AirTableTableUpwork string `envconfig:"AIRTABLE_TABLE_UPWORK"`
+	AirTableTableFL     string `envconfig:"AIRTABLE_TABLE_FL"`
 }
 
 // Init populates Config struct with values from config file
